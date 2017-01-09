@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Music Player</title>
+		<style type="text/css">
+			h1 {
+				text-align: center;
+				font-size: 30px;
+			}
+
+			#top {
+				margin: auto;
+			}
+
+			#groups {
+				display: none;
+				position: relative;
+				top: 100px;
+				width: 100%;
+				text-align: center;
+
+			}
+
+			#openGroups {
+				text-align: center;
+			}
+
+			#openGroupList {
+				list-style-type: none;
+			}
+
+			#openGroupList > li {
+				margin-top: 5px;
+			}
+
+			#openGroup {
+				display: none;
+			}
+
+			#users {
+         		position: absolute;
+         		top: 100px;
+         		bottom: 0px;
+         		left: 25px;
+         		width: 250px;
+         		border: 1px solid black;
+         		overflow: hidden;
+     		}
+
+     		#usersRelative{
+     			position: relative;
+         		width: 100%;
+         		height: 100%;
+         		overflow: scroll;
+     		}
+
+     		#songs {
+     			position: absolute;
+     			width: 1000px;
+     			top: 100px;
+     			bottom: 0px;
+     			left: 300px;
+     			border: 1px solid black;
+     			overflow: hidden;
+     		}
+
+     		#spotifySearch {
+     			position: relative;
+     			display: inline-block;
+     			margin: 10px;
+     			left: 0px;
+     			width:50%;
+     			height: 100%;
+     			overflow: scroll;
+     		}
+
+     		#playlist {	
+     			position: relative;
+     			display: inline-block;
+     			margin: 10px;
+     			height: 100%
+     			width: 40%;
+     			height: 100%;
+     			overflow: scroll;
+     		}
+
+		</style>
+		<script src="/socket.io/socket.io.js"></script>
+		<script>
+			var activeUser = null;
+			var currentGroup = null;
+			var songPlaying = false;
+			var socketio = io.connect();
+			socketio.on("createuser_to_client", function(data) {
+				if(data["success"] == 1) {
+					alert("User " + data["username"] + " Created");
+					activeUser = data["username"];
+					document.getElementById("activeUser").innerHtml = "Currently Logged In As: " + activeUser;
+					document.getElementById("top").style.display = "none";
+					document.getElementById("groups").style.display = "block";
+					populateGroups(data["groupnames"]);
+				} else {
+					alert("User not created");
+				}
+				
+			}); 
+			socketio.on("login_to_client", function(data) {
+				if(data["success"] == 1) {
+					alert("User " + data["username"] + " Logged In");
+					activeUser = data["username"];
+					document.getElementById("activeUser").innerHtml = "Currently Logged In As: " + activeUser;
+					document.getElementById("top").style.display = "none";
+					document.getElementById("groups").style.display = "block";
+					populateGroups(data["groupnames"]);
+				} 
+				if(data["success"] == 0) {
+					alert("Username does not exist");
+				}
+				if(data["success"] == 2) {
+					alert("incorrect password");
+				}
+				
+			});
+
+			socketio.on("creategroup_to_client", function(data) {
+				if(data["success"] == 1) {
+					var name = data['name'];
+            		var li = document.createElement("li");
+            		li.appendChild(document.createTextNode(name));
+            		document.getElementById("openGroupList").appendChild(li);
+            		var btn = document.createElement("button");
+            		btn.setAttribute("data-name", name);
+            		btn.innerHTML = "Join";
+            		li.appendChild(btn);
+               		btn.addEventListener("click", opengroup);
+				} else {
+					alert("Name Already Taken");
+				}
+			});
+
+			socketio.on("joingroup_to_client", function(data) {
+				user = data["username"];
+				currentGroup = data["group"];
+				var node = document.getElementById("userList");
+				if(user == activeUser) {
+					document.getElementById("openGroup").style.display = "block";
+					document.getElementById("groups").style.display = "none";
+
+					while(node.firstChild) {
+						node.removeChild(node.firstChild);
+					}
+					for(cuser in data["users"]) {
+						var li = document.createElement("li");
+            			li.appendChild(document.createTextNode(data["users"][cuser]));
+            			node.appendChild(li);
+					}
+				} else {
+					var li = document.createElement("li");
+            		li.appendChild(document.createTextNode(user));
+            		node.appendChild(li);
+				}
+				
+
+			});
+
+			socketio.on("search_to_client", function(data) {
+				songs = data["result"];
+				var table = document.getElementById("searchResults");
+				while(table.childNodes.length > 2) {
+					table.removeChild(table.lastChild);
+				}
+				for(song in songs) {
+					var tr = document.createElement("tr");
+					var songTitle = document.createElement("td")
+					var artistName = document.createElement("td")
+					var vote = document.createElement("td")
+					songTitle.appendChild(document.createTextNode(songs[song]["name"]));
+					artistName.appendChild(document.createTextNode(songs[song]["artist"]));
+					var voteBtn = document.createElement("button");
+					voteBtn.setAttribute("data-id", songs[song]["id"]);
+					voteBtn.setAttribute("data-name", songs[song]["name"]);
+					voteBtn.setAttribute("data-url", songs[song]["url"]);
+					voteBtn.setAttribute("onclick", "vote(this)");
+            		voteBtn.innerHTML = "Add";
+            		vote.appendChild(voteBtn);
+            		tr.appendChild(songTitle);
+            		tr.appendChild(artistName);
+            		tr.appendChild(vote);
+            		table.appendChild(tr);
+
+
+				}
+			});
+
+			socketio.on("vote_to_client", function(data) {
+				if(data["success"] == 1) {
+					var playlist = data["playlist"];
+					var list = document.getElementById("songList");
+					var hasVoted = false;
+					while(list.childNodes.length > 2) {
+						list.removeChild(list.lastChild);
+					}
+					for(song in playlist) {
+						for(user in playlist[song]["votes"]) {
+							if(playlist[song]["votes"][user] == activeUser) {
+								hasVoted = true;
+							}
+						}
+						var tr = document.createElement("tr");
+						var songTitle = document.createElement("td");
+						var votes = document.createElement("td");
+						var vote = document.createElement("td");
+						songTitle.appendChild(document.createTextNode(playlist[song]["name"]));
+						votes.appendChild(document.createTextNode(playlist[song]["votes"].length));
+						var btn = document.createElement("button");
+						btn.setAttribute("data-name", playlist[song]["name"]);
+						btn.setAttribute("data-id", playlist[song]["id"]);
+						if(hasVoted) {
+							btn.appendChild(document.createTextNode("v"));
+							btn.setAttribute("onclick", "unvote(this)");
+						} else {
+							btn.appendChild(document.createTextNode("^"));
+							btn.setAttribute("onclick", "vote(this)");
+						}
+						vote.appendChild(btn);
+						tr.appendChild(songTitle);
+						tr.appendChild(votes);
+						tr.appendChild(vote);
+						tr.appendChild(btn);
+						list.appendChild(tr);
+						hasVoted = false;
+					}
+				} else {
+					alert("Already voted for that song");
+				}
+
+			});
+
+			socketio.on("play_to_host", function(data) {
+				if(data["playlist"].length > 0) {
+					if(!songPlaying) {
+						songPlaying = true;
+						var maxVotes = -1;
+						var songId = ""
+						var songURL = "";
+						for(song in data["playlist"]) {
+							var numVotes = data["playlist"][song]["votes"].length
+							if(numVotes > maxVotes) {
+								maxVotes = numVotes;
+								songUrl = data["playlist"][song]["url"];
+								songId = data["playlist"][song]["id"];
+							}
+						}
+						var audio = document.createElement("audio");
+						audio.setAttribute("id", "audio");
+						audio.setAttribute("data-id", songId);
+						audio.setAttribute("src", songUrl);
+						audio.setAttribute("autoplay", "");
+						audio.setAttribute("controls", "");
+						audio.setAttribute("onended", "songend(this)");
+						document.getElementById("playlist").appendChild(audio);
+					}
+				}
+			})
+
+			var createuser = function() {
+				var username = document.getElementById("createuser-username").value;
+				var password  = document.getElementById("createuser-password").value;
+				document.getElementById("createuser-username").value = "";
+				document.getElementById("createuser-password").value = "";
+				socketio.emit("createuser_to_server", {"username" : username, "password" : password});
+				
+			}
+
+			var loginuser = function() {
+				var username = document.getElementById("login-username").value;
+				var password  = document.getElementById("login-password").value;
+				document.getElementById("login-username").value = "";
+				document.getElementById("login-password").value = "";
+				socketio.emit("login_to_server", {"username" : username, "password" : password});
+			}
+
+			var populateGroups = function(groups) {
+				for(group in groups) {
+					var li = document.createElement("li");
+            		li.appendChild(document.createTextNode(groups[group]));
+            		document.getElementById("openGroupList").appendChild(li);
+            		var btn = document.createElement("button");
+            		btn.setAttribute("data-name", groups[group]);
+            		btn.innerHTML = "Join";
+            		li.appendChild(btn);
+               		btn.addEventListener("click", opengroup);
+				}
+			}
+
+			var creategroup = function() {
+				groupName = document.getElementById("creategroup-name").value;
+				document.getElementById("creategroup-name").value = "";
+				socketio.emit("creategroup_to_server", {"username" : activeUser, "name" : groupName});
+			}
+
+			var opengroup = function() {
+				var name = this.getAttribute("data-name");
+				socketio.emit("joingroup_to_server", {"username" : activeUser, "currentgroup" : currentGroup, "name" : name});
+			}
+
+			var search = function() {
+				var query = document.getElementById("songSearch").value;
+				socketio.emit("search_to_server", {"query" : query});
+
+			}
+
+			var vote = function(e) {
+				var id = e.getAttribute("data-id");
+				var name = e.getAttribute("data-name");
+				var url = e.getAttribute("data-url");
+				socketio.emit("vote_to_server", {"username" : activeUser, "id" : id, "url" : url, "name" : name, "group" : currentGroup});
+			}
+
+			var unvote = function(e) {
+				var id = e.getAttribute("data-id");
+				var name = e.getAttribute("data-name");
+				socketio.emit("unvote_to_server", {"username" : activeUser, "id" : id, "name" : name, "group" : currentGroup});
+			}
+
+			var songend = function(e) {
+				songPlaying = false;
+				var id = e.getAttribute("data-id");
+				var group = currentGroup;
+				var parent = document.getElementById("audio").parentNode;
+				parent.removeChild(parent.lastChild);
+				socketio.emit("songend_to_server", {"id" : id, "group" : group, "user" : activeUser});
+			}
+
+		</script>
+	</head>
+	<body>
+		<div id=title>
+			<h1>Group Music Player</h1>
+			<h2 id="activeUser"></h2>
+		</div>
+		<div id = top>
+			<div class="loginContainter">
+				<div id="createUser">
+					<input type="text" id="createuser-username" name="newUsername" placeholder="New Username">
+					<input type="password" id="createuser-password" name="newPassword" placeholder="Passowrd">
+					<button onclick="createuser()">Create User</button>
+				</div>
+				<div id="loginUser">
+					<input type="text" id="login-username" name="username" placeholder="Username">
+					<input type="password" id="login-password" name="password" placeholder="Password">
+					<button onclick="loginuser()">Login</button>
+				</div>
+			</div>
+		</div>
+		<div id="groups">
+			<div id="createNewGroup">
+				<span>Create a new Group</span>
+				<input type="text" id="creategroup-name" name="creategroup-name" placeholder="Name">
+				<button onclick="creategroup()">Host!</button>
+			</div>
+			<div id="openGroups">
+				<ul id="openGroupList">
+				</ul>
+			</div>
+		</div>
+		<div id="openGroup">
+			<div id="users">
+				<div id="usersRelative">
+					<h4>Current Users</h4>
+					<ul id="userList">
+					</ul>
+				</div>
+			</div>
+			<div id="songs">
+				<div id="spotifySearch">
+					<input type="text" id="songSearch" name="songSearch" placeholder="Enter a Song">
+					<button onclick="search()">Search Song</button>
+					<table id="searchResults">
+						<tr>
+							<td>Song</td>
+							<td>Artist</td>
+							<td></td>
+						</tr>
+					</table>
+				</div>
+				<div id="playlist">
+					<h4>Playlist</h4>
+					<table id="songList">
+						<tr>
+							<td>Song</td>
+							<td>Votes</td>
+							<td></td>
+						</tr>
+					</table>
+				</div>
+			</div>
+		</div>
+	</body>
+</html>
